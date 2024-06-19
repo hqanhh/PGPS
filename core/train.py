@@ -19,26 +19,39 @@ def train(args, epoch, train_loader, model, criterion, optimizer):
             var_dict = {'pos', 'len', 'var_value', 'arg_value'}
             exp_dict = {'exp', 'len', 'answer'}
         '''
-        # measure data loading time
+        # Record the time taken to load data
         data_time.update(time.time() - end)
-        # set cuda for input data
+        
+        # Move input data to the GPU
         diagrams = diagrams.cuda()
-        set_cuda(text_dict), set_cuda(var_dict), set_cuda(exp_dict)
-        # compute output
+        set_cuda(text_dict)
+        set_cuda(var_dict)
+        set_cuda(exp_dict)
+        
+        # Generate model predictions
         output = model(diagrams, text_dict, var_dict, exp_dict, is_train=True)
-        loss = criterion(output, exp_dict['exp'][:,1:].clone(), exp_dict['len']-1) # Remove special symbol [SOS]
-        # update the loss
+        
+        # Calculate the loss, excluding the initial [SOS] token
+        loss = criterion(output, exp_dict['exp'][:, 1:].clone(), exp_dict['len'] - 1)
+        
+        # Synchronize processes and average the loss
         torch.distributed.barrier()
         reduced_loss = reduce_mean(loss, args.nprocs)
         losses.update(reduced_loss.item(), len(diagrams))
-        # compute gradient and do SGD step
+        
+        # Perform backpropagation and update model parameters
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # measure elapsed time
+        
+        # Record the time taken for the current batch
         batch_time.update(time.time() - end)
         end = time.time()
+        
+        # Display progress at specified intervals
         if i % args.print_freq == 0:
-            progress.display(i, lr = optimizer.state_dict()['param_groups'][0]['lr'])
+            progress.display(i, lr=optimizer.state_dict()['param_groups'][0]['lr'])
 
+    # Return the average loss
     return losses.avg
+
